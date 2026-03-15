@@ -1,45 +1,47 @@
-name: Gym Scraper Test
+name: Gym Scraper
 
 on:
-  push:
-    branches: [ main ]
   schedule:
-    - cron: '*/30 * * * *'
-  workflow_dispatch: # <--- AKTIVUJE RUČNÍ TLAČÍTKO
+    - cron: '0 * * * *' # Každou hodinu
+  workflow_dispatch: # Možnost pustit ručně
 
 jobs:
-  scrape:
+  build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Nutné pro nahrání data.json zpět
-      
+      contents: write
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
+      - name: Install Google Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
       - name: Install dependencies
         run: |
-          pip install selenium webdriver-manager beautifulsoup4
+          pip install undetected-chromedriver beautifulsoup4 selenium
 
       - name: Run scraper
         run: python google_scraper.py
 
-      - name: Save results to repo
-        run: |
-          git config --global user.name "GymBot"
-          git config --global user.email "bot@gym.cz"
-          git add data.json
-          # Commitne jen pokud se data změnila, jinak neudělá nic
-          git commit -m "Update gym data [skip ci]" || exit 0
-          git push
-
-      - name: Upload screenshots
+      - name: Upload screenshots (debug)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: google-debug-screenshots
-          path: debug_*.png
+          path: ./*.png
+
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Aktualizace obsazenosti [automated]" && git push)
