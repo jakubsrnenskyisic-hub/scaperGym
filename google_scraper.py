@@ -4,8 +4,9 @@ import json
 import os
 import re
 
-# Tento import je pro verzi 0.4.0 a novější (včetně v1.0)
+# Importy pro nejnovější Crawlee
 from crawlee.crawlers import PlaywrightCrawler, PlaywrightCrawlingContext
+from crawlee.models import Request # Přidáno pro opravu chyby
 
 async def main():
     gyms = ["Form Factory Palladium", "Form Factory Vinohradská"]
@@ -18,23 +19,26 @@ async def main():
 
     @crawler.router.default_handler
     async def request_handler(context: PlaywrightCrawlingContext):
+        # V nové verzi se k user_data přistupuje přes context.request.user_data
         gym_name = context.request.user_data.get('gym_name')
         page = context.page
         
         try:
-            # Přidáme hl=cs pro vynucení češtiny přímo v URL
+            # Navigace na Google
             await page.goto(context.request.url)
             await page.wait_for_load_state('networkidle')
             await asyncio.sleep(8) 
             
             content = await page.content()
-            # Robustnější regex pro češtinu i angličtinu
+            # Regex pro vytížení
             match = re.search(r'(?:Živě|Live|Právě teď|vytížení|Busy|Popular times):\s*(\d+)\s*%', content, re.IGNORECASE)
             
             occupancy = "N/A"
             if match:
                 occupancy = f"{match.group(1)}%"
                 print(f"✅ {gym_name}: {occupancy}")
+            else:
+                print(f"⚠️ {gym_name}: Procento nenalezeno.")
             
             await context.push_data({
                 'gym': gym_name,
@@ -44,11 +48,19 @@ async def main():
         except Exception as e:
             print(f"❌ Chyba u {gym_name}: {e}")
 
+    # --- TADY JE OPRAVA ---
+    # Místo seznamu slovníků [{}, {}] vytváříme seznam objektů Request
+    requests = [
+        Request(
+            url=f"https://www.google.com/search?q={g.replace(' ', '+')}+Praha&hl=cs",
+            user_data={'gym_name': g}
+        ) for g in gyms
+    ]
+    
     # Spuštění
-    requests = [{'url': f"https://www.google.com/search?q={g.replace(' ', '+')}+Praha&hl=cs", 'user_data': {'gym_name': g}} for g in gyms]
     await crawler.run(requests)
 
-    # --- Export do data.json ---
+    # --- Export do data.json (beze změny) ---
     final_results = {}
     if os.path.exists('data.json'):
         try:
@@ -59,13 +71,17 @@ async def main():
 
     storage_path = './storage/datasets/default/'
     if os.path.exists(storage_path):
-        for file in os.listdir(storage_path):
+        for file in sorted(os.listdir(storage_path)):
             if file.endswith('.json'):
                 with open(os.path.join(storage_path, file), 'r', encoding='utf-8') as f:
                     item = json.load(f)
                     name = item['gym']
-                    if name not in final_results: final_results[name] = []
-                    final_results[name].append({"occupancy": item['occupancy'], "timestamp": item['timestamp']})
+                    if name not in final_results:
+                        final_results[name] = []
+                    final_results[name].append({
+                        "occupancy": item['occupancy'],
+                        "timestamp": item['timestamp']
+                    })
                     final_results[name] = final_results[name][-100:]
 
     with open('data.json', 'w', encoding='utf-8') as f:
