@@ -22,8 +22,9 @@ def scrape_gyms(gym_list):
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--window-size=1920,1080") # Větší okno, aby se graf vešel
     options.add_argument("--lang=cs-CZ")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     
@@ -32,46 +33,37 @@ def scrape_gyms(gym_list):
         try:
             query = f"{gym_name} Praha"
             driver.get(f"https://www.google.com/search?q={query.replace(' ', '+')}")
-            time.sleep(10) # Čas na vykreslení JS grafů
+            
+            # Počkáme déle, Google v cloudu může být pomalý
+            time.sleep(12)
+            
+            # --- DEBUG: Uložíme fotku toho, co robot vidí ---
+            driver.save_screenshot(f"debug_{gym_name.replace(' ', '_')}.png")
+            print(f"📸 Screenshot uložen pro {gym_name}")
             
             soup = BeautifulSoup(driver.page_source, 'html.parser')
             occupancy = "N/A"
             status_text = "Nezjištěno"
 
-            # 1. NAJDEME TEXT "Živě" (v jakémkoliv divu/spanu)
-            live_element = soup.find(string=re.compile(r"Živě:|Live:"))
+            # Hledání v celém textu stránky (nejstabilnější)
+            full_page_text = soup.get_text(separator=' ', strip=True)
             
-            if live_element:
-                # Najdeme nejbližší nadřazený kontejner, který obsahuje ten text
-                parent_container = live_element.find_parent()
-                
-                # STATUS: Vytáhneme text, co je hned za "Živě:" (např. "Nižší vytížení")
-                status_text = parent_container.get_text(strip=True).replace("Živě:", "").strip()
-                
-                # PROCENTA: Teď zkusíme najít procenta v celém bloku "Oblíbené časy"
-                # Prohledáme všechny sousední a nadřazené divy a hledáme aria-label s %
-                popular_times_block = live_element.find_parent("div", {"class": True}) # Hledáme nejbližší velký blok
-                
-                # Pokud nenajdeme přímo, prohledáme celé okolí
-                search_area = live_element.find_parent(id=re.compile(r"itRa")) or live_element.find_parent("div")
-                
-                # Hledáme jakékoliv procento v okolí "Živě"
-                all_texts = search_area.get_text(separator=' ')
-                match = re.search(r'(\d+)\s*%', all_texts)
-                
-                if match:
-                    occupancy = f"{match.group(1)}%"
-                else:
-                    # Poslední záchrana: Prohledat aria-labels v celém okolí grafu
-                    labels = search_area.find_all(attrs={"aria-label": True})
-                    for l in labels:
-                        if '%' in l['aria-label']:
-                            m = re.search(r'(\d+)\s*%', l['aria-label'])
-                            if m:
-                                occupancy = f"{m.group(1)}%"
-                                break
+            # Hledáme vzor "Živě: XX%" nebo jen "XX %" v okolí slova "vytížení"
+            match = re.search(r'(?:Živě|Live):\s*(\d+)\s*%', full_page_text)
+            if not match:
+                # Zkusíme najít jakékoliv procento, které následuje po "Živě"
+                live_pos = full_page_text.find("Živě")
+                if live_pos != -1:
+                    snippet = full_page_text[live_pos:live_pos+50]
+                    match = re.search(r'(\d+)\s*%', snippet)
 
-            # 2. Uložení do historie
+            if match:
+                occupancy = f"{match.group(1)}%"
+                # Zkusíme vytáhnout i ten text (např. Nižší vytížení)
+                status_match = re.search(r'(?:Živě):\s*\d+\s*%\s*([^.]+)', full_page_text)
+                if status_match:
+                    status_text = status_match.group(1).strip()
+
             new_entry = {
                 "occupancy": occupancy,
                 "status": status_text,
@@ -80,7 +72,6 @@ def scrape_gyms(gym_list):
 
             if gym_name not in results:
                 results[gym_name] = []
-            
             results[gym_name].append(new_entry)
             if len(results[gym_name]) > 50:
                 results[gym_name] = results[gym_name][-50:]
@@ -88,15 +79,12 @@ def scrape_gyms(gym_list):
             print(f"🏆 {gym_name}: {occupancy} | {status_text}")
             
         except Exception as e:
-            print(f"❌ Chyba u {gym_name}: {e}")
+            print(f"❌ Chyba: {e}")
 
     driver.quit()
-
     with open('data.json', 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=4)
-    print("✅ data.json aktualizován.")
 
 if __name__ == "__main__":
-    # Tady si doplňuj fitka podle potřeby
-    gyms_to_scrape = ["JOHN REED Fitness Praha"]
+    gyms_to_scrape = ["Form Factory Palladium", "Form Factory Vinohradská"]
     scrape_gyms(gyms_to_scrape)

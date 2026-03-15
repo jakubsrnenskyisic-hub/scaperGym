@@ -37,3 +37,9 @@ jobs:
           # Commitne jen pokud se data změnila, jinak neudělá nic
           git commit -m "Update gym data [skip ci]" || exit 0
           git push
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-debug-screenshots
+          path: debug_*.png
