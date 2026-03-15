@@ -57,5 +57,5 @@ def scrape_gyms(gym_list):
         json.dump(results, f, ensure_ascii=False, indent=4)
 
 if __name__ == "__main__":
-    gyms_to_scrape = ["Form Factory Palladium", "Form Factory Vinohradská"]
+    gyms_to_scrape = ["JOHN REED Fitness Praha"]
     scrape_gyms(gyms_to_scrape)
