@@ -1,15 +1,19 @@
 import asyncio
 from datetime import datetime
-from crawlee.playwright_crawler import PlaywrightCrawler, PlaywrightCrawlingContext
 import json
 import os
+import re
+
+# Pokus o import Crawlee s více možnostmi (pro různé verze)
+try:
+    from crawlee.playwright_crawler import PlaywrightCrawler, PlaywrightCrawlingContext
+except ImportError:
+    from crawlee import PlaywrightCrawler, PlaywrightCrawlingContext
 
 async def main():
-    # Seznam fitek, které chceme sledovat
     gyms = ["Form Factory Palladium", "Form Factory Vinohradská"]
     
-    # Inicializace Crawlee Crawleru
-    # headless=True je pro GitHub nezbytné
+    # Nastavení crawleru
     crawler = PlaywrightCrawler(
         max_requests_per_crawl=10,
         browser_type='chromium',
@@ -19,77 +23,75 @@ async def main():
     @crawler.router.default_handler
     async def request_handler(context: PlaywrightCrawlingContext):
         gym_name = context.request.user_data.get('gym_name')
-        context.log.info(f"🔍 Zpracovávám: {gym_name}")
-
         page = context.page
-        # Počkáme, až se objeví hlavní výsledky nebo grafy
-        # Používáme selektory z Crawlee blogu, které jsou stabilnější
+        
         try:
-            # Čekáme na vykreslení stránky (max 20s)
-            await page.wait_for_load_state('networkidle')
-            await asyncio.sleep(5) # Krátká pauza na JS grafy
-
-            # Zkusíme vytáhnout text celé stránky
-            content = await page.content()
+            # Navigace na Google vyhledávání
+            await page.goto(context.request.url, wait_until='networkidle')
+            await asyncio.sleep(7) # Čas na načtení dynamických grafů
             
-            # Hledání procent pomocí regulárního výrazu přímo v HTML/Textu
-            import re
+            content = await page.content()
+            # Hledání procent (regex)
             match = re.search(r'(?:Živě|Live|Právě teď|vytížení):\s*(\d+)\s*%', content, re.IGNORECASE)
             
             occupancy = "N/A"
             if match:
                 occupancy = f"{match.group(1)}%"
-                context.log.info(f"✅ Nalezeno pro {gym_name}: {occupancy}")
+                print(f"✅ {gym_name}: {occupancy}")
             else:
-                context.log.warning(f"⚠️ Procento pro {gym_name} nenalezeno.")
-                # Uděláme screenshot pro debug, pokud to nenajde data
-                await page.screenshot(path=f"error_{gym_name.replace(' ', '_')}.png")
-
-            # Uložíme výsledek do Crawlee datasetu (automaticky vytváří JSON)
+                print(f"⚠️ {gym_name}: Procento nenalezeno.")
+            
+            # Uložení do dočasného úložiště Crawlee
             await context.push_data({
                 'gym': gym_name,
                 'occupancy': occupancy,
                 'timestamp': datetime.now().strftime("%d.%m.%Y %H:%M:%S")
             })
-
         except Exception as e:
-            context.log.error(f"❌ Chyba při zpracování {gym_name}: {e}")
+            print(f"❌ Chyba u {gym_name}: {e}")
 
-    # Vytvoření seznamu URL pro vyhledávání
-    requests = []
-    for gym in gyms:
-        url = f"https://www.google.com/search?q={gym.replace(' ', '+')}+Praha&hl=cs"
-        requests.append({'url': url, 'user_data': {'gym_name': gym}})
-
-    # Spuštění
+    # Příprava požadavků
+    requests = [
+        {
+            'url': f"https://www.google.com/search?q={g.replace(' ', '+')}+Praha&hl=cs", 
+            'user_data': {'gym_name': g}
+        } for g in gyms
+    ]
+    
+    # Spuštění crawleru
     await crawler.run(requests)
 
-    # Po skončení převedeme data z Crawlee storage do tvého data.json
-    # Crawlee ukládá data do složky ./storage/datasets/default/
-    final_data = {}
+    # --- PŘELITÍ DAT DO data.json ---
+    final_results = {}
     if os.path.exists('data.json'):
-        with open('data.json', 'r', encoding='utf-8') as f:
-            final_data = json.load(f)
+        try:
+            with open('data.json', 'r', encoding='utf-8') as f:
+                final_results = json.load(f)
+        except:
+            final_results = {}
 
-    # Načtení nových dat z Crawlee exportu
-    # (Zjednodušeno pro tvůj stávající formát)
+    # Projdeme složku, kam Crawlee ukládá výsledky
     storage_path = './storage/datasets/default/'
     if os.path.exists(storage_path):
-        for filename in os.listdir(storage_path):
-            if filename.endswith('.json'):
-                with open(os.path.join(storage_path, filename), 'r', encoding='utf-8') as f:
+        for file in os.listdir(storage_path):
+            if file.endswith('.json'):
+                with open(os.path.join(storage_path, file), 'r', encoding='utf-8') as f:
                     item = json.load(f)
                     name = item['gym']
-                    if name not in final_data: final_data[name] = []
-                    final_data[name].append({
+                    if name not in final_results:
+                        final_results[name] = []
+                    
+                    final_results[name].append({
                         "occupancy": item['occupancy'],
                         "timestamp": item['timestamp']
                     })
-                    # Limit 100 záznamů
-                    final_data[name] = final_data[name][-100:]
+                    # Udržíme jen posledních 100 záznamů pro každé fitko
+                    final_results[name] = final_results[name][-100:]
 
+    # Uložení finálního souboru
     with open('data.json', 'w', encoding='utf-8') as f:
-        json.dump(final_data, f, ensure_ascii=False, indent=4)
+        json.dump(final_results, f, ensure_ascii=False, indent=4)
+    print("🏁 Data úspěšně uložena do data.json")
 
 if __name__ == '__main__':
     asyncio.run(main())
