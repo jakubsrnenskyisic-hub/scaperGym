@@ -3,7 +3,7 @@ name: Gym Scraper
 on:
   schedule:
     - cron: '0 * * * *' # Každou hodinu
-  workflow_dispatch: # Možnost pustit ručně
+  workflow_dispatch: 
 
 jobs:
   build:
@@ -27,12 +27,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install undetected-chromedriver beautifulsoup4 selenium
+          pip install undetected-chromedriver beautifulsoup4 selenium webdriver-manager
 
       - name: Run scraper
         run: python google_scraper.py
 
-      - name: Upload screenshots (debug)
+      - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -43,5 +43,13 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
           git add data.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Aktualizace obsazenosti [automated]" && git push)
+          
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "Žádné změny."
+          else
+            git commit -m "Aktualizace obsazenosti [automated]"
+            git pull --rebase origin main
+            git push origin main
+          fi
