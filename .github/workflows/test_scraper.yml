@@ -4,15 +4,14 @@ on:
   push:
     branches: [ main ]
   schedule:
-    - cron: '*/30 * * * *' # Každých 30 minut
-  workflow_dispatch:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # <--- AKTIVUJE RUČNÍ TLAČÍTKO
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    # Povolení pro zápis do repozitáře
     permissions:
-      contents: write
+      contents: write # Nutné pro nahrání data.json zpět
       
     steps:
       - name: Checkout code
@@ -30,10 +29,11 @@ jobs:
       - name: Run scraper
         run: python google_scraper.py
 
-      - name: Commit and push changes
+      - name: Save results to repo
         run: |
           git config --global user.name "GymBot"
           git config --global user.email "bot@gym.cz"
           git add data.json
-          git commit -m "Update occupancy data [skip ci]" || exit 0
+          # Commitne jen pokud se data změnila, jinak neudělá nic
+          git commit -m "Update gym data [skip ci]" || exit 0
           git push
