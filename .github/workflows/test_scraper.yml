@@ -3,11 +3,17 @@ name: Gym Scraper Test
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # Přidá tlačítko "Run workflow", abys mohl testovat ručně
+  schedule:
+    - cron: '*/30 * * * *' # Každých 30 minut
+  workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    # Povolení pro zápis do repozitáře
+    permissions:
+      contents: write
+      
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -17,9 +23,17 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Chrome and dependencies
+      - name: Install dependencies
         run: |
           pip install selenium webdriver-manager beautifulsoup4
 
       - name: Run scraper
         run: python google_scraper.py
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "GymBot"
+          git config --global user.email "bot@gym.cz"
+          git add data.json
+          git commit -m "Update occupancy data [skip ci]" || exit 0
+          git push
