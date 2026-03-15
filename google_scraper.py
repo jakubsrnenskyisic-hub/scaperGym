@@ -4,11 +4,8 @@ import json
 import os
 import re
 
-# Pokus o import Crawlee s více možnostmi (pro různé verze)
-try:
-    from crawlee.playwright_crawler import PlaywrightCrawler, PlaywrightCrawlingContext
-except ImportError:
-    from crawlee import PlaywrightCrawler, PlaywrightCrawlingContext
+# Tento import je pro verzi 0.4.0 a novější (včetně v1.0)
+from crawlee.crawlers import PlaywrightCrawler, PlaywrightCrawlingContext
 
 async def main():
     gyms = ["Form Factory Palladium", "Form Factory Vinohradská"]
@@ -16,7 +13,6 @@ async def main():
     # Nastavení crawleru
     crawler = PlaywrightCrawler(
         max_requests_per_crawl=10,
-        browser_type='chromium',
         headless=True,
     )
 
@@ -26,22 +22,20 @@ async def main():
         page = context.page
         
         try:
-            # Navigace na Google vyhledávání
-            await page.goto(context.request.url, wait_until='networkidle')
-            await asyncio.sleep(7) # Čas na načtení dynamických grafů
+            # Přidáme hl=cs pro vynucení češtiny přímo v URL
+            await page.goto(context.request.url)
+            await page.wait_for_load_state('networkidle')
+            await asyncio.sleep(8) 
             
             content = await page.content()
-            # Hledání procent (regex)
-            match = re.search(r'(?:Živě|Live|Právě teď|vytížení):\s*(\d+)\s*%', content, re.IGNORECASE)
+            # Robustnější regex pro češtinu i angličtinu
+            match = re.search(r'(?:Živě|Live|Právě teď|vytížení|Busy|Popular times):\s*(\d+)\s*%', content, re.IGNORECASE)
             
             occupancy = "N/A"
             if match:
                 occupancy = f"{match.group(1)}%"
                 print(f"✅ {gym_name}: {occupancy}")
-            else:
-                print(f"⚠️ {gym_name}: Procento nenalezeno.")
             
-            # Uložení do dočasného úložiště Crawlee
             await context.push_data({
                 'gym': gym_name,
                 'occupancy': occupancy,
@@ -50,18 +44,11 @@ async def main():
         except Exception as e:
             print(f"❌ Chyba u {gym_name}: {e}")
 
-    # Příprava požadavků
-    requests = [
-        {
-            'url': f"https://www.google.com/search?q={g.replace(' ', '+')}+Praha&hl=cs", 
-            'user_data': {'gym_name': g}
-        } for g in gyms
-    ]
-    
-    # Spuštění crawleru
+    # Spuštění
+    requests = [{'url': f"https://www.google.com/search?q={g.replace(' ', '+')}+Praha&hl=cs", 'user_data': {'gym_name': g}} for g in gyms]
     await crawler.run(requests)
 
-    # --- PŘELITÍ DAT DO data.json ---
+    # --- Export do data.json ---
     final_results = {}
     if os.path.exists('data.json'):
         try:
@@ -70,7 +57,6 @@ async def main():
         except:
             final_results = {}
 
-    # Projdeme složku, kam Crawlee ukládá výsledky
     storage_path = './storage/datasets/default/'
     if os.path.exists(storage_path):
         for file in os.listdir(storage_path):
@@ -78,20 +64,13 @@ async def main():
                 with open(os.path.join(storage_path, file), 'r', encoding='utf-8') as f:
                     item = json.load(f)
                     name = item['gym']
-                    if name not in final_results:
-                        final_results[name] = []
-                    
-                    final_results[name].append({
-                        "occupancy": item['occupancy'],
-                        "timestamp": item['timestamp']
-                    })
-                    # Udržíme jen posledních 100 záznamů pro každé fitko
+                    if name not in final_results: final_results[name] = []
+                    final_results[name].append({"occupancy": item['occupancy'], "timestamp": item['timestamp']})
                     final_results[name] = final_results[name][-100:]
 
-    # Uložení finálního souboru
     with open('data.json', 'w', encoding='utf-8') as f:
         json.dump(final_results, f, ensure_ascii=False, indent=4)
-    print("🏁 Data úspěšně uložena do data.json")
+    print("🏁 Hotovo.")
 
 if __name__ == '__main__':
     asyncio.run(main())
