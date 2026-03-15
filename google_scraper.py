@@ -102,8 +102,6 @@ def scrape_gyms(gym_list):
 if __name__ == "__main__":
     # Tady si doplň seznam všech svých fitek
     gyms_to_scrape = [
-        "Form Factory Palladium", 
-        "Form Factory Vinohradská",
-        "Form Factory Anděl"
+        "JOHN REED Fitness Praha"
     ]
     scrape_gyms(gyms_to_scrape)
